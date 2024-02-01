@@ -14,7 +14,7 @@ keep_alive()
 load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-CHAT_ID = os.getenv('BOT_TOKEN')
+CHAT_ID = os.getenv('CHAT_ID')
 
 app = Flask(__name__)
 bot = telegram.Bot(token=BOT_TOKEN)
