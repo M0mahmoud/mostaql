@@ -1,3 +1,4 @@
+from flask import Flask, jsonify
 import asyncio
 import os
 import pickle
@@ -15,6 +16,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHAT_ID = os.getenv('BOT_TOKEN')
 
+app = Flask(__name__)
 bot = telegram.Bot(token=BOT_TOKEN)
 
 # Function to load previously sent jobs
@@ -144,3 +146,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    app.run(debug=True)
+
+@app.route('/')
+def home():
+    return jsonify(message='Mostaql Bot Server')
