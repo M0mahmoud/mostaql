@@ -16,6 +16,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
 
+
 app = Flask(__name__)
 bot = telegram.Bot(token=BOT_TOKEN)
 
@@ -40,10 +41,13 @@ def save_sent_jobs(sent_jobs):
 
 
 def generate_message(job):
+    title = job['title']
+    offers = job['offers']
+    time = re.sub(r'\s+', ' ', job['time'])
+    desc = job['desc']
     msg_link = f'https://mostaql.com/project/{job["link"]}'
-    return "💡 {}\n\n💼 {}\n\n🕰️ {}\n\n🎨 {}\n\n🔗 {}".format(
-        job['title'], job['offers'], re.sub(r'\s+', ' ', job['time']),
-        job['desc'], msg_link)
+    html_message = f'<b><a href="{msg_link}">💡 {title}</a></b>\n\n<b>🕰️ {time}</b>\n🎨 {desc}\n<b>💼 {offers}</b>\n'
+    return html_message
 
 
 def get_headers():
@@ -125,14 +129,13 @@ async def scrape_and_send_jobs():
             message = generate_message(job)
             try:
                 await bot.send_message(chat_id=CHAT_ID,
-                                       text=message,
+                                       text=message, parse_mode='HTML',
                                        disable_web_page_preview=True)
                 sent_jobs.add(job['datetime'])
                 await asyncio.sleep(.5)
             except Exception as e:
                 print(f"Error sending message: {e}")
         save_sent_jobs(sent_jobs)
-
 
 async def main():
     try:
