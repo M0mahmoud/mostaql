@@ -1,4 +1,5 @@
 from flask import Flask, jsonify
+from flask_cors import CORS
 import asyncio
 import os
 import pickle
@@ -8,6 +9,7 @@ from dotenv import load_dotenv
 import requests
 import telegram
 from bs4 import BeautifulSoup
+
 from keep_alive import keep_alive
 
 keep_alive()
@@ -15,9 +17,11 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
-
+PRIMARY_URL = "https://mostaql.com/projects?category=development&budget_max=10000&sort=latest"
+PROJECT_URL = "https://mostaql.com/project/"
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 bot = telegram.Bot(token=BOT_TOKEN)
 
 # Function to load previously sent jobs
@@ -42,11 +46,13 @@ def save_sent_jobs(sent_jobs):
 
 def generate_message(job):
     title = job['title']
-    offers = job['offers']
-    time = re.sub(r'\s+', ' ', job['time'])
-    desc = job['desc']
-    msg_link = f'https://mostaql.com/project/{job["link"]}'
-    html_message = f'<b><a href="{msg_link}">💡 {title}</a></b>\n\n<b>🕰️ {time}</b>\n🎨 {desc}\n<b>💼 {offers}</b>\n'
+    description = job['description']
+    budget = job["project_budget_value"]
+    msg_link = f'{PROJECT_URL}{job["project_id"]}'
+    deadline = re.sub(r'\s+', ' ', job["project_deadline_value"])
+    date = re.sub(r'\s+', ' ', job["project_date_value"])
+
+    html_message = f'<b><a href="{msg_link}">💡{title}</a></b>\n<b>- {date}</b>\n- <b>مدة التنفيذ  {deadline}</b>\n- <b>الميزانية {budget}</b>\n{description}\n'
     return html_message
 
 
@@ -74,54 +80,55 @@ def get_headers():
 
 
 async def scrape_and_send_jobs():
-    url = "https://mostaql.com/projects?category=development&budget_max=10000&sort=latest"
     headers = get_headers()
-    response = requests.get(url, headers=headers)
+    response = requests.get(PRIMARY_URL, headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
 
     jobs = []
     for project_row in soup.select(".project-row"):
-        title_element = project_row.select_one(".mrg--bt-reset")
-        link = project_row.select_one(".mrg--bt-reset a").get('href')
+        original_link = project_row.select_one(".mrg--bt-reset a").get('href')
+        project_id = original_link[28:34]
+        print("project_id:", project_id)
+
+        URL = PROJECT_URL+project_id
+        project_res = requests.get(URL, headers=headers)
+        project_soup = BeautifulSoup(project_res.text, "html.parser")
+
+        # Title
+        title_element = project_soup.select_one("h1[data-page-title]")
         title = title_element.get_text(strip=True) if title_element else None
 
-        desc_element = project_row.select_one(".details-url")
-        desc = desc_element.get_text(strip=True) if desc_element else None
+        # Description
+        project_desc = project_soup.select_one(".carda__content")
+        description = project_desc.get_text() if title_element else None
 
-        time_element = project_row.select_one("time")
+        # Project Details
+        table_meta = project_soup.select(".table-meta tr")
 
-        datetime = time_element['title'] if time_element else None
+        project_date = table_meta[1].select('td')
+        project_date_value = project_date[1].get_text()
 
-        # Find the start index of the project number
-        start_index = link.find("https://mostaql.com/project/") + len(
-            "https://mostaql.com/project/")
-        # Slice the URL to get the project number
-        project_number = link[start_index:].split('-')[0]
+        project_budget = table_meta[2].select('td')
+        project_budget_value = project_budget[1].get_text()
 
-        meta_el = project_row.select(".list-meta-items")
-        offers = ''
-        time = ''
-        for meta in meta_el:
-            last = meta.select('.text-muted')
-            offers = last[2].getText(strip=True)
-            time = last[1].getText(strip=True)
+        project_deadline = table_meta[3].select('td')
+        project_deadline_value = project_deadline[1].get_text()
 
         jobs.append({
+            "project_id": project_id,
             "title": title,
-            "desc": desc,
-            "time": time,
-            "datetime": datetime,
-            "link": project_number,
-            "offers": offers
+            "description": description,
+            "project_date_value": project_date_value,
+            "project_budget_value": project_budget_value,
+            "project_deadline_value": project_deadline_value,
         })
-
     new_jobs = []
 
     for job in jobs:
 
-        if job['datetime'] not in sent_jobs:
+        if job['project_id'] not in sent_jobs:
             new_jobs.append(job)
-            sent_jobs.add(job['datetime'])
+            sent_jobs.add(job['project_id'])
 
     if new_jobs:
 
@@ -131,11 +138,12 @@ async def scrape_and_send_jobs():
                 await bot.send_message(chat_id=CHAT_ID,
                                        text=message, parse_mode='HTML',
                                        disable_web_page_preview=True)
-                sent_jobs.add(job['datetime'])
+                sent_jobs.add(job['project_id'])
                 await asyncio.sleep(.5)
             except Exception as e:
                 print(f"Error sending message: {e}")
         save_sent_jobs(sent_jobs)
+
 
 async def main():
     try:
@@ -149,7 +157,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    app.run(debug=True)
+    app.run(debug=True)  # Add this line to run the Flask app
+
 
 @app.route('/')
 def home():
